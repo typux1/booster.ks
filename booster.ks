@@ -34,44 +34,25 @@ function latError { return getImpact():lat - landingsite:lat. }
 function errorVector { return getImpact():position - landingSite:position. }
 
 function getSteering {            
-    local vertical is up:vector.
-    local velVec is -ship:velocity:surface.
-
-    // --- ERROR basado en impacto futuro ---
-    local err is landingsite:position - ship:position.
-    if addons:tr:hasimpact {
-        set err to addons:tr:impactpos:position - landingsite:position.
+    local errorVector is errorVector().
+    local velVector is -ship:velocity:surface.
+    local result is velVector + errorVector*errorScaling.
+    if vang(result, velVector) > aoa {
+        set result to velVector:normalized + tan(aoa)*errorVector:normalized.
     }
-
-    // eliminar componente vertical (solo X/Y)
-    set err to err - vdot(err, vertical) * vertical.
-
-    // ganancia dependiente de altura (suave arriba, fuerte abajo)
-    local gain is (2000 - alt:radar) / 2000.
-    set gain to max(0, gain).
-    set gain to min(1, gain).
-
-    // combinar frenado + corrección lateral
-    local result is velVec + err * gain * errorScaling.
-
-    // limitar AoA
-    if vang(result, velVec) > aoa {
-        set result to velVec:normalized + tan(aoa) * err:normalized.
-    }
-
-    return lookdirup(result:normalized, facing:topvector).
+    return lookdirup(result, facing:topvector).
 }
 function towerApproachSteering {
     local vertical is up:vector.
-    local err is landingsite:position - ship:position.
-    set err to err - vdot(err, vertical) * vertical.
+    local errorVec is landingsite:position - ship:position.
+    // eliminar componente vertical
+    set errorVec to errorVec - vdot(errorVec, vertical) * vertical.
 
-    local gain is (1000 - alt:radar) / 1000.
-    set gain to max(0, gain).
-    set gain to min(1, gain).
+    // ganancia lateral proporcional a la altitud
+    local gain is min(1, (1000 - alt:radar) / 1000). // 0 a 1 entre 2 km y suelo
 
-
-    local steerVec is vertical + err:normalized * gain * 0.4.
+    // vector combinado: vertical + corrección lateral
+    local steerVec is vertical + errorVec:normalized * gain * 0.5.
 
     return lookdirup(steerVec:normalized, facing:topvector).
 }
@@ -100,46 +81,46 @@ function getSteering2 {
 
 
 // --- Aterrizaje ---
-function doland {
-
+function doland{
     toggle ag3.
-    print "landing started".
-
-    lock aoa to 30.
+     print "landing started".
     lock steering to getSteering().
+  lock aoa to 30.
+  
+  
+  when alt:radar < 12000 then {
+    rcs off.
+    lock aoa to 15.
+  }
 
-    when alt:radar < 12000 then {
-        rcs off.
-        lock aoa to 15.
+  
+
+ when impactTime < 3.5 then {gear on.} 
+ wait until  trueRadar < 10000. {
+ lock throttle to idealThrottle.
+	 
+     lock aoa to 15.	
+     lock steering to getSteering().
+
+ when alt:radar <= 4000 then {
+        lock steering to up.
+        print "codigo2".
     }
 
-    when impactTime < 3.5 then { gear on. }
-
-    wait until trueRadar < 15000. {
-
-        lock throttle to idealThrottle.
-        lock aoa to 15.
-
-        // 🔥 HOVERSLAM CON CORRECCIÓN X/Y REAL
-        lock steering to getSteering().
-
-        when alt:radar <= 4000 then {
-            lock steering to getSteering().
-        }
-
-        when alt:radar <= 2000 then {
-            lock steering to towerApproachSteering().
-        }
-
-        when alt:radar <= 200 then {
-            lock steering to up + R(0,0,270).
-        }
-
-        wait until altitude <= 85.
-        doshutdown().
+ when alt:radar <= 2000 then {
+        lock steering to towerApproachSteering().
+        print "codigo2".
     }
+
+     
+     
+ when alt:radar <=200 then { 
+ lock steering to up + R(0,0,270).
+ }
+ WAIT UNTIL altitude <= 85.
+ doshutdown().
 }
-
+}
 
 
 // --- Corrección aerodinámica entre 30 km y 20 km ---
